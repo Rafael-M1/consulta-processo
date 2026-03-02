@@ -114,7 +114,7 @@ def monitorar(numero_unico):
         return
 
     if hash_antigo != novo_hash:
-        print("🚨 Nova ocorrência detectada!")
+        print("🚨 🚨 🚨 🚨 Nova ocorrência detectada!🚨 🚨 🚨 🚨 ")
         controle[numero_unico] = novo_hash
         salvar_controle(controle)
     else:
