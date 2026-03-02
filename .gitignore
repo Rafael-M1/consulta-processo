@@ -1,0 +1,10 @@
+venv/
+.venv/
+env/
+ENV/
+
+controle_ocorrencias.json
+
+.env
+
+numeros.json
