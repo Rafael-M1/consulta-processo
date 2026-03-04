@@ -45,8 +45,8 @@ def buscar_id_processo(numero_unico):
             headers=HEADERS,
             timeout=(10, 30),
         )
-
-        print(f"[buscar_id_processo] Status HTTP: {response.status_code}")
+        if not response.ok:
+            print(f"[buscar_id_processo] Status HTTP1: {response.status_code}")
 
         response.raise_for_status()
 
@@ -67,17 +67,17 @@ def buscar_id_processo(numero_unico):
         print("Erro na requisição:", e)
         return None
 
-def buscar_ocorrencias(processo_id):
+def buscar_ocorrencias(processo_id, numero_unico):
     try:
-        print(f"[buscar_ocorrencias] ")
+        print(f"[buscar_ocorrencias] numero={numero_unico}, id={processo_id}")
         response = requests.get(
             f"{BASE_URL}/ocorrencias/id",
             params={"id": processo_id},
             headers=HEADERS,
             timeout=(10, 30),
         )
-
-        print(f"[buscar_ocorrencias] Status HTTP: {response.status_code}")
+        if not response.ok:
+            print(f"[buscar_ocorrencias] Status HTTP: {response.status_code}")
 
         response.raise_for_status()
 
@@ -102,7 +102,7 @@ def monitorar(numero_unico):
     
     time.sleep(random.uniform(0.21, 0.61))
 
-    ocorrencias = buscar_ocorrencias(processo_id)
+    ocorrencias = buscar_ocorrencias(processo_id, numero_unico)
     novo_hash = gerar_hash(ocorrencias)
 
     hash_antigo = controle.get(numero_unico)
