@@ -5,6 +5,7 @@ import os
 import json5
 import time
 import random
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,14 +28,15 @@ def carregar_controle():
         return {}
     with open(ARQUIVO_CONTROLE, "r") as f:
         return json.load(f)
-    
+
 def salvar_controle(controle):
     with open(ARQUIVO_CONTROLE, "w") as f:
-        json.dump(controle, f, indent=4)
+        json.dump(controle, f, indent=4, ensure_ascii=False)
 
-def buscar_id_processo(numero_unico):
+def buscar_ids_processo(numero_unico):
+    """Retorna lista de todos os IDs encontrados para o número único."""
     try:
-        print(f"[buscar_id_processo] ")
+        print(f"[buscar_ids_processo] Buscando processos para {numero_unico}...")
         response = requests.get(
             f"{BASE_URL}/processos-expedientes/filtro",
             params={
@@ -46,26 +48,32 @@ def buscar_id_processo(numero_unico):
             timeout=(10, 30),
         )
         if not response.ok:
-            print(f"[buscar_id_processo] Status HTTP1: {response.status_code}")
-
+            print(f"[buscar_ids_processo] Status HTTP: {response.status_code}")
         response.raise_for_status()
 
         data = response.json()
-
         if not data.get("success", False):
             print("API retornou erro lógico:", data.get("errorMessage"))
-            return None
+            return None  # None = erro lógico, não timeout
 
         processos = data.get("value", {}).get("expedientesProcessos", [])
-
         if not processos:
-            return None
+            return []  # Lista vazia = nenhum processo encontrado
 
-        return processos[0]["id"]
+        ids = [p["id"] for p in processos]
+        print(f"[buscar_ids_processo] {len(ids)} processo(s) encontrado(s): {ids}")
+        return ids
 
+    except requests.exceptions.Timeout:
+        print(f"[buscar_ids_processo] ⚠️  Timeout ao buscar {numero_unico}. Pulando atualização de hash.")
+        return "TIMEOUT"
+    except requests.exceptions.ConnectionError:
+        print(f"[buscar_ids_processo] ⚠️  Sem conexão ao buscar {numero_unico}. Pulando atualização de hash.")
+        return "TIMEOUT"
     except requests.exceptions.RequestException as e:
-        print("Erro na requisição:", e)
-        return None
+        print(f"[buscar_ids_processo] Erro na requisição: {e}")
+        return "TIMEOUT"
+
 
 def buscar_ocorrencias(processo_id, numero_unico):
     try:
@@ -78,57 +86,94 @@ def buscar_ocorrencias(processo_id, numero_unico):
         )
         if not response.ok:
             print(f"[buscar_ocorrencias] Status HTTP: {response.status_code}")
-
         response.raise_for_status()
 
         data = response.json()
-
         if not data.get("success", True):
             print("API retornou erro lógico:", data.get("errorMessage"))
-
         return data
 
+    except requests.exceptions.Timeout:
+        print(f"[buscar_ocorrencias] ⚠️  Timeout ao buscar ocorrências do processo {processo_id}. Pulando.")
+        return "TIMEOUT"
+    except requests.exceptions.ConnectionError:
+        print(f"[buscar_ocorrencias] ⚠️  Sem conexão ao buscar ocorrências do processo {processo_id}. Pulando.")
+        return "TIMEOUT"
     except requests.exceptions.RequestException as e:
-        print("Erro ao buscar ocorrências:", e)
-        return None
+        print(f"[buscar_ocorrencias] Erro ao buscar ocorrências: {e}")
+        return "TIMEOUT"
+
 
 def monitorar(numero_unico):
     controle = carregar_controle()
 
-    processo_id = buscar_id_processo(numero_unico)
-    if not processo_id:
-        print("Processo não encontrado.")
-        return
-    
-    time.sleep(random.uniform(0.21, 0.61))
+    # Garante que o número único já tem um dict de processos no controle
+    if numero_unico not in controle or not isinstance(controle[numero_unico], dict):
+        controle[numero_unico] = {}
 
-    ocorrencias = buscar_ocorrencias(processo_id, numero_unico)
-    novo_hash = gerar_hash(ocorrencias)
+    ids_resultado = buscar_ids_processo(numero_unico)
 
-    hash_antigo = controle.get(numero_unico)
-
-    if not hash_antigo:
-        print("Primeira consulta. Salvando estado.")
-        controle[numero_unico] = novo_hash
-        salvar_controle(controle)
+    # Timeout ou erro de conexão: não atualiza nada
+    if ids_resultado == "TIMEOUT":
+        print(f"[monitorar] Ignorando {numero_unico} por falha de rede.")
         return
 
-    if hash_antigo != novo_hash:
-        print("🚨 🚨 🚨 🚨 Nova ocorrência detectada!🚨 🚨 🚨 🚨 ")
-        controle[numero_unico] = novo_hash
-        salvar_controle(controle)
-    else:
-        print("Sem novas ocorrências.")
-        
+    if ids_resultado is None:
+        print(f"[monitorar] Erro lógico ao buscar processos de {numero_unico}.")
+        return
+
+    if not ids_resultado:
+        print(f"[monitorar] Nenhum processo encontrado para {numero_unico}.")
+        return
+
+    for processo_id in ids_resultado:
+        time.sleep(random.uniform(0.21, 0.61))
+
+        ocorrencias = buscar_ocorrencias(processo_id, numero_unico)
+
+        # Timeout ou erro de conexão: não atualiza hash deste processo
+        if ocorrencias == "TIMEOUT":
+            print(f"[monitorar] Ignorando processo {processo_id} por falha de rede.")
+            continue
+
+        if ocorrencias is None:
+            print(f"[monitorar] Resposta nula para processo {processo_id}. Ignorando.")
+            continue
+
+        novo_hash = gerar_hash(ocorrencias)
+        hash_antigo = controle[numero_unico].get(str(processo_id))
+
+        if not hash_antigo:
+            print(f"[monitorar] Primeira consulta do processo {processo_id}. Salvando estado.")
+            controle[numero_unico][str(processo_id)] = novo_hash
+            salvar_controle(controle)
+            continue
+
+        if hash_antigo != novo_hash:
+            print(f"🚨 🚨 🚨 🚨 Nova ocorrência detectada no processo {processo_id}! 🚨 🚨 🚨 🚨")
+            controle[numero_unico][str(processo_id)] = novo_hash
+            salvar_controle(controle)
+        else:
+            print(f"[monitorar] Sem novas ocorrências no processo {processo_id}.")
+
+
 def carregar_numeros_json(caminho="numeros.json"):
-    with open("numeros.json", "r", encoding="utf-8") as f:
+    with open(caminho, "r", encoding="utf-8") as f:
         return json5.load(f)
 
-if __name__ == "__main__":
-    numeros = carregar_numeros_json()
 
-    resultados = []
+if __name__ == "__main__":
+    inicio = datetime.now()
+    print(f"🟢 Script iniciado em: {inicio.strftime('%d/%m/%Y %H:%M:%S')}")
+    print("-" * 50)
+
+    numeros = carregar_numeros_json()
 
     for numero in numeros:
         monitorar(numero)
         time.sleep(2)
+
+    fim = datetime.now()
+    duracao = fim - inicio
+    print("-" * 50)
+    print(f"✅ Script finalizado em: {fim.strftime('%d/%m/%Y %H:%M:%S')} (duração: {str(duracao).split('.')[0]})")
