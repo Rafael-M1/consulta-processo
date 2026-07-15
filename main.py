@@ -128,17 +128,17 @@ def monitorar(numero_unico, resultado_tabela):
 
     if ids_resultado == "TIMEOUT":
         console.print(f"  [yellow]⚠ Ignorando {escape(numero_unico)} por falha de rede.[/yellow]")
-        resultado_tabela.append((numero_unico, "–", "[yellow]TIMEOUT[/yellow]"))
+        resultado_tabela.append((numero_unico, "–", "[yellow]TIMEOUT[/yellow]", "-"))
         return
 
     if ids_resultado is None:
         console.print(f"  [red]✗ Erro lógico ao buscar processos de {escape(numero_unico)}.[/red]")
-        resultado_tabela.append((numero_unico, "–", "[red]ERRO LÓGICO[/red]"))
+        resultado_tabela.append((numero_unico, "–", "[red]ERRO LÓGICO[/red]", "-"))
         return
 
     if not ids_resultado:
         console.print(f"  [dim]Nenhum processo encontrado para {escape(numero_unico)}.[/dim]")
-        resultado_tabela.append((numero_unico, "0", "[dim]Sem processos[/dim]"))
+        resultado_tabela.append((numero_unico, "0", "[dim]Sem processos[/dim]", "-"))
         return
 
     for processo_id in ids_resultado:
@@ -147,13 +147,14 @@ def monitorar(numero_unico, resultado_tabela):
 
         if ocorrencias == "TIMEOUT":
             console.print(f"    [yellow]⚠ Ignorando processo {processo_id} por falha de rede.[/yellow]")
-            resultado_tabela.append((numero_unico, str(processo_id), "[yellow]TIMEOUT[/yellow]"))
+            resultado_tabela.append((numero_unico, str(processo_id), "[yellow]TIMEOUT[/yellow]", "-"))
             continue
 
         if ocorrencias is None:
             console.print(f"    [red]✗ Resposta nula para processo {processo_id}.[/red]")
-            resultado_tabela.append((numero_unico, str(processo_id), "[red]NULO[/red]"))
+            resultado_tabela.append((numero_unico, str(processo_id), "[red]NULO[/red]", "-"))
             continue
+        ultima_ocorrencia = buscar_ultima_ocorrencia(ocorrencias)
 
         novo_hash = gerar_hash(ocorrencias)
         hash_antigo = controle[numero_unico].get(str(processo_id))
@@ -164,7 +165,7 @@ def monitorar(numero_unico, resultado_tabela):
             )
             controle[numero_unico][str(processo_id)] = novo_hash
             salvar_controle(controle)
-            resultado_tabela.append((numero_unico, str(processo_id), "[blue]PRIMEIRA CONSULTA[/blue]"))
+            resultado_tabela.append((numero_unico, str(processo_id), "[blue]PRIMEIRA CONSULTA[/blue]", ultima_ocorrencia))
             continue
 
         if hash_antigo != novo_hash:
@@ -179,18 +180,31 @@ def monitorar(numero_unico, resultado_tabela):
             console.print(alerta)
             controle[numero_unico][str(processo_id)] = novo_hash
             salvar_controle(controle)
-            resultado_tabela.append((numero_unico, str(processo_id), "[bold red]🚨 NOVA OCORRÊNCIA[/bold red]"))
+            resultado_tabela.append((numero_unico, str(processo_id), "[bold red]🚨 NOVA OCORRÊNCIA[/bold red]", ultima_ocorrencia))
         else:
             console.print(
                 f"    [green]✓ Sem mudanças no processo {processo_id}.[/green]"
             )
-            resultado_tabela.append((numero_unico, str(processo_id), "[green]✓ Sem mudanças[/green]"))
+            resultado_tabela.append((numero_unico, str(processo_id), "[green]✓ Sem mudanças[/green]", ultima_ocorrencia))
 
 
 def carregar_numeros_json(caminho="numeros.json"):
     with open(caminho, "r", encoding="utf-8") as f:
         return json5.load(f)
 
+
+def buscar_ultima_ocorrencia(ocorrencias):
+    """Retorna a última ocorrência de um processo, se houver."""
+    if not ocorrencias or "value" not in ocorrencias:
+        return None
+
+    value = ocorrencias["value"]["expedienteProcessoOcorrenciaDto"]["ocorrencias"]
+    
+    if isinstance(value, list) and value and "dataCriacao" in value[0]:
+        data = value[0]["dataCriacao"]
+        dt = datetime.fromisoformat(data)
+        return dt.strftime("%d/%m/%Y %H:%M:%S")
+    return "-"
 
 def imprimir_tabela_resumo(resultados):
     table = Table(
@@ -203,9 +217,10 @@ def imprimir_tabela_resumo(resultados):
     table.add_column("Número Único", style="white", no_wrap=True)
     table.add_column("Processo ID", justify="center", style="dim")
     table.add_column("Status", justify="center")
+    table.add_column("Data última ocorrência", justify="center")
 
-    for numero, proc_id, status in resultados:
-        table.add_row(numero, proc_id, status)
+    for numero, proc_id, status, data_ultima_ocorrencia in resultados:
+        table.add_row(numero, proc_id, status, data_ultima_ocorrencia)
 
     console.print()
     console.print(table)
