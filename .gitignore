@@ -8,3 +8,5 @@ controle_ocorrencias.json
 .env
 
 numeros.json
+
+__pycache__/
